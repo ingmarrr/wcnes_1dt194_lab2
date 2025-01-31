@@ -95,8 +95,7 @@ print_int(uint16_t reg){
 /*---------------------------------------------------------------------------*/
 /* accelerometer free fall detection callback */
 
-void
-accm_ff_cb(uint8_t reg){
+void accm_ff_cb(uint8_t reg){
   leds_on(LEDS_BLUE);
   process_post(&led_process, ledOff_event, NULL);
   printf("~~[%u] Freefall detected! (0x%02X) -- ", ((uint16_t) clock_time())/128, reg);
@@ -105,8 +104,7 @@ accm_ff_cb(uint8_t reg){
 /*---------------------------------------------------------------------------*/
 /* accelerometer tap and double tap detection callback */
 
-void
-accm_tap_cb(uint8_t reg){
+void accm_tap_cb(uint8_t reg){
   process_post(&led_process, ledOff_event, NULL);
   if(reg & ADXL345_INT_DOUBLETAP){
     leds_on(LEDS_GREEN);
