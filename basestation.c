@@ -7,15 +7,13 @@
 
 /* Declare our "main" process, the basestation_process */
 PROCESS(basestation_process, "Clicker basestation");
-// PROCESS(led_process, "Led Process");
 /* The basestation process should be started automatically when
  * the node has booted. */
-AUTOSTART_PROCESSES(&basestation_process /*, &led_process */);
+AUTOSTART_PROCESSES(&basestation_process);
 
 static struct etimer timer;
 static struct etimer inactive_timer;
-
-/* Holds the number of packets received. */
+static bool isActive = false;
 
 /* Callback function for received packets.
  *
@@ -30,32 +28,40 @@ static void recv(
   const linkaddr_t *src, 
   const linkaddr_t *dest
 ) {
-    uint8_t state = *(uint8_t*)data;
+    static uint8_t state = *(uint8_t*)data;
     printf("[state]: %u=", state);
+
     switch (state) {
         case 99: {
             printf("inactive\n");
+
             if (etimer_expired(&inactive_timer)) 
             {
 	            leds_off(LEDS_ALL);
+                isActive = false;
 	            return;
             }
         } break;
+
         case 101: {
             printf("active\n");
+
 	        leds_single_on(0);
             etimer_set(&inactive_timer, CLOCK_SECOND * 10);
+            isActive = true;
         } break;
-	case 103: {
-	    printf("button-press\n");
-	    if (etimer_expired(&inactive_timer))
-	    {
-		    etimer_set(&inactive_timer, CLOCK_SECOND * 10);
-		    leds_single_on(1);
-		    return;
-	    }
-	    leds_on(LEDS_ALL);
-	} break;
+
+	    case 103: {
+            printf("button-press\n");
+
+            if (etimer_expired(&inactive_timer)){
+                etimer_set(&inactive_timer, CLOCK_SECOND * 10);
+                leds_single_on(1);
+                return;
+            }
+
+            if (isActive) leds_on(LEDS_ALL);
+        } break;
         default: return;
     }
 }
@@ -67,9 +73,7 @@ PROCESS_THREAD(basestation_process, ev, data) {
 
     while (1) {
 	    etimer_set(&timer, CLOCK_SECOND);
-            PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
-	    if (etimer_expired(&inactive_timer)) leds_off(LEDS_ALL);
+        PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
     }
-
     PROCESS_END();
 }
