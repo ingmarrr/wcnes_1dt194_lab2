@@ -85,18 +85,18 @@ PROCESS_THREAD(client_process, ev, data) {
     process_poll(&client_process);
 
     while (1) {
-	printf("sending\n");
+	    printf("sending\n");
         leds_toggle(LEDS_RED);
 
-	memcpy(nullnet_buf, &payload, sizeof(payload));
-	nullnet_len = sizeof(payload);
+	    memcpy(nullnet_buf, &payload, sizeof(payload));
+	    nullnet_len = sizeof(payload);
 
-	NETSTACK_NETWORK.output(NULL);
+	    NETSTACK_NETWORK.output(NULL);
 
-	etimer_set(&timer, ACCM_READ_INTERVAL);
-	PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
+	    etimer_set(&timer, ACCM_READ_INTERVAL);
+	    PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
 
-	printf("deactiving\n");
+	    printf("deactiving\n");
         process_poll(&inactive_process);
     }
 

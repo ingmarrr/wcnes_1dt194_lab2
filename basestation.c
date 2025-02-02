@@ -35,24 +35,24 @@ static void recv(
     switch (state) {
         case 99: {
             printf("inactive\n");
-            process_poll(&basestation_process);
             if (etimer_expired(&inactive_timer)) 
             {
-		leds_off(LEDS_ALL);
-		return;
+	            leds_off(LEDS_ALL);
+	            return;
             }
         } break;
         case 101: {
             printf("active\n");
-	    leds_single_on(0);
+	        leds_single_on(0);
             etimer_set(&inactive_timer, CLOCK_SECOND * 10);
         } break;
 	case 103: {
 	    printf("button-press\n");
 	    if (etimer_expired(&inactive_timer))
 	    {
-		leds_single_on(1);
-		return;
+		    etimer_set(&inactive_timer, CLOCK_SECOND * 10);
+		    leds_single_on(1);
+		    return;
 	    }
 	    leds_on(LEDS_ALL);
 	} break;
@@ -66,8 +66,9 @@ PROCESS_THREAD(basestation_process, ev, data) {
     nullnet_set_input_callback(recv);
 
     while (1) {
-        etimer_set(&timer, CLOCK_SECOND);
-        PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
+	    etimer_set(&timer, CLOCK_SECOND);
+            PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
+	    if (etimer_expired(&inactive_timer)) leds_off(LEDS_ALL);
     }
 
     PROCESS_END();
