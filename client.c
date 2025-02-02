@@ -31,10 +31,10 @@ static uint8_t payload = 99;
 
 void accm_tap_cb(uint8_t reg)
 {
+	
     payload = 101;
     printf("[%u] Tap detected!\n", ((uint16_t) clock_time())/128);
-    
-    process_poll(&inactive_process);
+	process_poll(&client_process);
 }
 
 PROCESS_THREAD(inactive_process, ev, data) {
@@ -48,7 +48,7 @@ PROCESS_THREAD(inactive_process, ev, data) {
 	nullnet_len = sizeof(payload);
 	NETSTACK_NETWORK.output(NULL);
 	etimer_set(&timer, ACCM_READ_INTERVAL);
-	process_poll(&client_process);
+	
     }
     PROCESS_END();
 }
@@ -56,13 +56,15 @@ PROCESS_THREAD(inactive_process, ev, data) {
 PROCESS_THREAD(button_process, ev, data) {
     PROCESS_BEGIN();
     SENSORS_ACTIVATE(button_sensor);
+process_poll(&client_process);
+
     while(1) {
 	PROCESS_WAIT_EVENT_UNTIL(ev == sensors_event);
 	if (data == &button_sensor)
 	{
 	    payload = 103;
 	}
-	process_poll(&client_process);
+	
     }
     PROCESS_END();
 }
@@ -82,7 +84,8 @@ PROCESS_THREAD(client_process, ev, data) {
     ACCM_REGISTER_INT2_CB(accm_tap_cb);
     accm_set_irq(ADXL345_INT_TAP, ADXL345_INT_TAP);
 
-    process_poll(&client_process);
+    //process_poll(&client_process);
+
 
     while (1) {
 	    printf("sending\n");
@@ -96,8 +99,10 @@ PROCESS_THREAD(client_process, ev, data) {
 	    etimer_set(&timer, ACCM_READ_INTERVAL);
 	    PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
 
-	    printf("deactiving\n");
+        printf("deactiving\n");
         process_poll(&inactive_process);
+
+	    
     }
 
     PROCESS_END();
