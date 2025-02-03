@@ -1,104 +1,75 @@
-#include <stdio.h>
-#include <string.h>
 #include "contiki.h"
 #include "dev/button-sensor.h"
-#include "dev/leds.h"
+#include "dev/adxl345.h"
 #include "net/netstack.h"
 #include "net/nullnet/nullnet.h"
-#include "dev/adxl345.h"
 
-#define LED_INT_ONTIME        CLOCK_SECOND/2
-#define ACCM_READ_INTERVAL    CLOCK_SECOND
+#include <string.h>
+#include <stdio.h>
 
-PROCESS(client_process, "Client Process");
-PROCESS(inactive_process, "Led Process");
-PROCESS(button_process, "Button Process");
-AUTOSTART_PROCESSES(&client_process, &inactive_process, &button_process );
+#define SAMPLE_RATE (CLOCK_SECOND / 2)  // 100 Hz sampling
+#define MOVEMENT_THRESHOLD 100
+#define ALARM_TIMEOUT (10 * CLOCK_SECOND)  // 10 seconds
 
-/* Callback function for received packets.
- *
- * Whenever this node receives a packet for its broadcast handle,
- * this function will be called.
- *
- * As the client does not need to receive, the function does not do anything
- */
-static void recv(const void *data, uint16_t len,
-  const linkaddr_t *src, const linkaddr_t *dest) {
+PROCESS(sensor_process, "Sensor Process");
+AUTOSTART_PROCESSES(&sensor_process);
+
+static uint8_t alarm_type = 0;
+static int16_t last_x	  = 0;
+#define ACCEL_ALARM 1
+#define BUTTON_ALARM 2
+
+#define abs(_x) (_x >= 0 ? _x : (-1 * _x))
+
+static int detect_movement(void) {
+    int16_t x = adxl345.value(X_AXIS);
+    printf("[ABS] %d -> %u\n", x, abs(x));
+    bool out = (abs(last_x) - abs(x) > MOVEMENT_THRESHOLD);
+    last_x = x;
+    return out;
 }
 
-static struct etimer timer;
-static uint8_t payload = 99;
-
-void accm_tap_cb(uint8_t reg)
-{
-    payload = 101;
-    printf("[%u] Tap detected!\n", ((uint16_t) clock_time())/128);
+PROCESS_THREAD(sensor_process, ev, data) {
+    static struct etimer sample_timer;
+    static struct etimer alarm_timeout;
     
-    process_poll(&inactive_process);
-}
-
-PROCESS_THREAD(inactive_process, ev, data) {
-    PROCESS_BEGIN();
-    while(1) {
-        PROCESS_YIELD_UNTIL(ev == PROCESS_EVENT_POLL);
-        leds_on(LEDS_GREEN);
-        printf("inactive\n");
-        payload = 99;
-	memcpy(nullnet_buf, &payload, sizeof(payload));
-	nullnet_len = sizeof(payload);
-	NETSTACK_NETWORK.output(NULL);
-	etimer_set(&timer, ACCM_READ_INTERVAL);
-	process_poll(&client_process);
-    }
-    PROCESS_END();
-}
-
-PROCESS_THREAD(button_process, ev, data) {
     PROCESS_BEGIN();
     SENSORS_ACTIVATE(button_sensor);
+    nullnet_set_input_callback(NULL);
+    
     while(1) {
-	PROCESS_WAIT_EVENT_UNTIL(ev == sensors_event);
-	if (data == &button_sensor)
-	{
-	    payload = 103;
-	}
-	process_poll(&client_process);
+	printf("[WAITING]\n");
+	nullnet_buf = &alarm_type;
+	nullnet_len = sizeof(alarm_type);
+	NETSTACK_NETWORK.output(NULL);
+
+        etimer_set(&sample_timer, SAMPLE_RATE);
+        PROCESS_WAIT_EVENT_UNTIL(
+	    etimer_expired(&sample_timer) 
+	    || (ev == sensors_event 
+	    && data == &button_sensor));
+        
+        if(ev == sensors_event && data == &button_sensor) {
+            if(!(alarm_type & BUTTON_ALARM)) {
+                alarm_type |= BUTTON_ALARM;
+                etimer_set(&alarm_timeout, ALARM_TIMEOUT);
+		printf("[BUTTON] sent\n");
+            }
+        }
+        
+        if(detect_movement()) {
+            if(!(alarm_type & ACCEL_ALARM)) {
+                alarm_type |= ACCEL_ALARM;
+                etimer_set(&alarm_timeout, ALARM_TIMEOUT);
+		printf("[MOVEMENT] sent\n");
+            }
+        }
+        
+        if(etimer_expired(&alarm_timeout)) {
+            alarm_type = 0;
+	    printf("[ALARM] sent\n");
+        }
     }
-    PROCESS_END();
-}
-
-/* Our main process. */
-PROCESS_THREAD(client_process, ev, data) {
-
-    PROCESS_BEGIN();
-
-    /* Initialize NullNet */
-    nullnet_buf = (uint8_t *)&payload;
-    nullnet_len = sizeof(payload);
-    nullnet_set_input_callback(recv);
-
-    accm_init();
-    ACCM_REGISTER_INT1_CB(accm_tap_cb);
-    ACCM_REGISTER_INT2_CB(accm_tap_cb);
-    accm_set_irq(ADXL345_INT_TAP, ADXL345_INT_TAP);
-
-    process_poll(&client_process);
-
-    while (1) {
-	    printf("sending\n");
-        leds_toggle(LEDS_RED);
-
-	    memcpy(nullnet_buf, &payload, sizeof(payload));
-	    nullnet_len = sizeof(payload);
-
-	    NETSTACK_NETWORK.output(NULL);
-
-	    etimer_set(&timer, ACCM_READ_INTERVAL);
-	    PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
-
-	    printf("deactiving\n");
-        process_poll(&inactive_process);
-    }
-
+    
     PROCESS_END();
 }

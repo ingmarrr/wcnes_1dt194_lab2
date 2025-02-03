@@ -1,75 +1,74 @@
-#include <stdio.h>
-#include <string.h>
 #include "contiki.h"
 #include "dev/leds.h"
 #include "net/netstack.h"
 #include "net/nullnet/nullnet.h"
 
-/* Declare our "main" process, the basestation_process */
-PROCESS(basestation_process, "Clicker basestation");
-// PROCESS(led_process, "Led Process");
-/* The basestation process should be started automatically when
- * the node has booted. */
-AUTOSTART_PROCESSES(&basestation_process /*, &led_process */);
+#include <string.h>
+#include <stdio.h>
 
-static struct etimer timer;
-static struct etimer inactive_timer;
+#define ALARM_TIMEOUT (10 * CLOCK_SECOND)
 
-/* Holds the number of packets received. */
+PROCESS(base_station_process, "Base Station Process");
+PROCESS(led_process, "LED Process");
+AUTOSTART_PROCESSES(&base_station_process, &led_process);
 
-/* Callback function for received packets.
- *
- * Whenever this node receives a packet for its broadcast handle,
- * this function will be called.
- *
- * As the client does not need to receive, the function does not do anything
- */
-static void recv(
-  const void *data, 
-  uint16_t len, 
-  const linkaddr_t *src, 
-  const linkaddr_t *dest
+static uint8_t current_alarm = 0;
+
+// Callback function for received packets
+static void receive_callback(
+    const void *data, 
+    uint16_t len,
+    const linkaddr_t *src, 
+    const linkaddr_t *dest
 ) {
-    uint8_t state = *(uint8_t*)data;
-    printf("[state]: %u=", state);
-    switch (state) {
-        case 99: {
-            printf("inactive\n");
-            if (etimer_expired(&inactive_timer)) 
-            {
-	            leds_off(LEDS_ALL);
-	            return;
-            }
-        } break;
-        case 101: {
-            printf("active\n");
-	        leds_single_on(0);
-            etimer_set(&inactive_timer, CLOCK_SECOND * 10);
-        } break;
-	case 103: {
-	    printf("button-press\n");
-	    if (etimer_expired(&inactive_timer))
-	    {
-		    etimer_set(&inactive_timer, CLOCK_SECOND * 10);
-		    leds_single_on(1);
-		    return;
-	    }
-	    leds_on(LEDS_ALL);
-	} break;
-        default: return;
+    if(len == sizeof(uint8_t)) {
+        current_alarm = *(uint8_t *)data;
+	printf("[MESSAGE] %u\r\n", current_alarm);
     }
+    process_poll(&led_process);
 }
 
-/* Our main process. */
-PROCESS_THREAD(basestation_process, ev, data) {
+PROCESS_THREAD(base_station_process, ev, data) {
     PROCESS_BEGIN();
-    nullnet_set_input_callback(recv);
+    nullnet_set_input_callback(receive_callback);
+    while(1) PROCESS_WAIT_EVENT();
+    PROCESS_END();
+}
 
-    while (1) {
-	    etimer_set(&timer, CLOCK_SECOND);
-            PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
-	    if (etimer_expired(&inactive_timer)) leds_off(LEDS_ALL);
+PROCESS_THREAD(led_process, ev, data) {
+    static struct etimer led_timer;
+    uint8_t current_alarm_copy = current_alarm;
+    PROCESS_BEGIN();
+    
+    while(1) 
+    {
+        PROCESS_YIELD_UNTIL(ev == PROCESS_EVENT_POLL);
+	printf("  [CURRENT] %u\r\n", current_alarm);
+        
+	switch (current_alarm_copy) {
+	    case 1: {
+		printf("[MOVEMENT]\r\n");
+		leds_single_on(0);
+	    } break;
+	    case 2: {
+		printf("[BUTTON]\r\n");
+		leds_single_on(1);
+	    } break;
+	    case 3: {
+		printf("[BOTH]\r\n");
+		leds_on(LEDS_ALL);
+	    } break;
+	    default: {
+		etimer_set(&led_timer, ALARM_TIMEOUT);
+	    } break;
+	}
+        
+        if (current_alarm_copy == 0) 
+	{
+	    printf("[DEACTIVATE]\r\n");
+            leds_off(LEDS_ALL);
+        }
     }
-
+    
     PROCESS_END();
 }
